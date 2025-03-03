@@ -7,10 +7,28 @@ from openxai import LoadModel, Explainer, Evaluator
 from openxai import Explainer
 from openxai import Evaluator
 
-# Dataset: German Credit, ml_model = 'ann'
-def testModelData(data_name, method, metric):
-    # Get training and t est loaders
-    trainloader, testloader = ReturnLoaders(data_name, download=True, batch_size = 10)
+
+"""
+---TO DO---
+
+data_name:
+method:
+metric:
+ml_model: ann/lr
+
+... restliche Dokumentation. Welche Metriken? Kurze Erklärung?
+
+Predictive Faithfulness Metrics
+PGI/PGU:
+"""
+def testModelData(data_name, method, metric, model):
+    # Get training and test loaders
+    try:
+        trainloader, testloader = ReturnLoaders(data_name, download=True, batch_size=10)
+    except Exception as e:
+        print(f"Fehler beim Laden des Datensatzes {data_name}: {e}")
+        return
+
     # Get input instance
     inputs, labels = next(iter(testloader))
     labels = labels.type(torch.int64)
@@ -19,13 +37,18 @@ def testModelData(data_name, method, metric):
     X_train, X_test, feature_metadata = ReturnTrainTestX(data_name, float_tensor=True, return_feature_metadata=True)
 
     # Load pretrained ml model
-    model = LoadModel(data_name, ml_model='ann', pretrained=True)
+    model = LoadModel(data_name, ml_model=model, pretrained=True)
     print_summary(model, trainloader, testloader)
     preds = model(inputs.float()).argmax(1)
     print(f'First 10 predictions: {preds[:10]}')
 
     # Load config parameters for the explainer
-    param_dict = load_config('experiment_config.json')['explainers'][method]
+    try:
+        param_dict = load_config('experiment_config.json')['explainers'][method]
+    except Exception as e:
+        print(f"❌ Fehler beim Laden der Konfiguration: {e}")
+        param_dict ={}
+        
     # IF LIME/IG, the provide X_train
     param_dict = fill_param_dict(method, param_dict, X_train)
     params_preview = [f'{k}: array of size {v.shape}' if hasattr(v, 'shape') else f'{k}: {v}' for k, v in param_dict.items()]
@@ -37,19 +60,6 @@ def testModelData(data_name, method, metric):
     explanations = explainer.get_explanations(inputs.float(), preds).detach().numpy()
     print(explanations[0])
 
-    """ # Explanation method with default hyperparameters
-    # Load config parameters for the explainer
-    param_dict = {} 
-    # IF LIME/IG, the provide X_train
-    param_dict = fill_param_dict('lime', param_dict, X_train)
-    params_preview = params_preview = [f'{k}: array of size {v.shape}' if hasattr(v, 'shape') else f'{k}: {v}' for k, v in param_dict.items()]
-    print(f'{'lime'.upper()} Parameters\n\n' +'\n'.join(params_preview))
-    print('Remaining parameters are set to their default values')
-    lime = Explainer(method, model=model, param_dict=param_dict)
-    lime_explanations= lime.get_explanations(inputs, preds).detach().numpy()
-    print(lime_explanations[0]) """
-
-    # Choose one of ['PGU', 'PGI']
     # Load config
     param_dict = load_config('experiment_config.json')['evaluators']['prediction_metrics']
     param_dict['inputs'] = inputs
@@ -71,4 +81,4 @@ def testModelData(data_name, method, metric):
     print(f"{metric}: {mean_score:.2f}\u00B1{std_err:.2f}")
 
 if __name__ == '__main__':
-    testModelData('german', 'lime', 'PGI')
+    testModelData('german', 'lime', 'PGI', 'ann')
