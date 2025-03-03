@@ -18,13 +18,11 @@ def testModelData(data_name, method, metric):
     # Get full train/test FloatTensors and feature metadata
     X_train, X_test, feature_metadata = ReturnTrainTestX(data_name, float_tensor=True, return_feature_metadata=True)
 
-
     # Load pretrained ml model
     model = LoadModel(data_name, ml_model='ann', pretrained=True)
     print_summary(model, trainloader, testloader)
     preds = model(inputs.float()).argmax(1)
     print(f'First 10 predictions: {preds[:10]}')
-
 
     # Load config parameters for the explainer
     param_dict = load_config('experiment_config.json')['explainers'][method]
@@ -73,4 +71,4 @@ def testModelData(data_name, method, metric):
     print(f"{metric}: {mean_score:.2f}\u00B1{std_err:.2f}")
 
 if __name__ == '__main__':
-    testModelData('german', 'lime', 'PGU')
+    testModelData('german', 'lime', 'PGI')
