@@ -46,7 +46,7 @@ def testModelsData(data_name, method, metric, model):
     try:
         param_dict = load_config('experiment_config.json')['explainers'][method]
     except Exception as e:
-        print(f"❌ Fehler beim Laden der Konfiguration: {e}")
+        print(f"Fehler beim Laden der Konfiguration: {e}")
         param_dict ={}
         
     # IF LIME/IG, the provide X_train
@@ -68,7 +68,7 @@ def testModelsData(data_name, method, metric, model):
     print('Prediction metrics: ', prediction_metrics)
     print('Stability metrics: ', stability_metrics)
 
-    # Load config for prediction_metrics
+    # Load config for prediction metrics
     param_dict = load_config('experiment_config.json')['evaluators']['prediction_metrics']
     param_dict['inputs'] = inputs
     param_dict['explanations'] = explanations
@@ -76,24 +76,50 @@ def testModelsData(data_name, method, metric, model):
     param_dict['perturb_method'] = get_perturb_method(param_dict['std'], data_name)
     del param_dict['std']
 
+    # Load config for ground truth metrics
+    # PRA and RC require a slightly different set of parameters, without keys "k" and "AUC2" and "predictions"
+    gparam_dict1 = load_config('experiment_config.json')['evaluators']['ground_truth_metrics']
+    gparam_dict1['explanations'] = explanations
+    gparam_dict2 = gparam_dict1.copy()
+    gparam_dict1['predictions'] = preds
+    del gparam_dict2['k'], gparam_dict2['AUC']
+
     # Print parameters
     params_preview = [f'{k}: array of size {v.shape}' if hasattr(v, 'shape') else f'{k}: {v}' for k, v in param_dict.items()]
     print(f'{metric.upper()} Parameters\n\n' +'\n'.join(params_preview))
 
+    # Save results from Ground Truth Metrics into excel sheet
+    for gtm in ground_truth_metrics:
+        metric = gtm
+
+        # Evaluate the metric accross the test inputs/explanations
+        evaluator = Evaluator(model, metric)
+        if metric == 'PRA' or metric == 'RC':      
+            score, mean_score = evaluator.evaluate(**gparam_dict2)
+        else:
+            score, mean_score = evaluator.evaluate(**gparam_dict1)
+
+        # Calculate standard error
+        std_err = np.std(score) / np.sqrt(len(score))
+        
+        # Print results
+        with open("results/experiment_results.csv", "a") as f:
+            f.write(f"{data_name},{method},{metric},{mean_score:.2f},{std_err:.2f}\n")
+
+    # Save results from Prediction Metrics into excel sheet
     for pm in prediction_metrics:
-        # Metrik setzen
         metric = pm
 
         # Evaluate the metric accross the test inputs/explanations
         evaluator = Evaluator(model, metric)
         score, mean_score = evaluator.evaluate(**param_dict)
 
-        # Calculate standard erro
+        # Calculate standard error
         std_err = np.std(score) / np.sqrt(len(score))
         
         # Print results
-        with open("experiment_results.csv", "a") as f:
+        with open("results/experiment_results.csv", "a") as f:
             f.write(f"{data_name},{method},{metric},{mean_score:.2f},{std_err:.2f}\n")
 
 if __name__ == '__main__':
-    testModelsData('german', 'lime', 'PGI', 'ann')
+    testModelsData('german', 'lime', 'PGI', 'lr')
