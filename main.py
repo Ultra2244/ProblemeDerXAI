@@ -94,6 +94,11 @@ def testModelsData(data_name, method, model_name):
     exp_param_dict = fill_param_dict(exp_method, exp_param_dict, X_train)  # if LIME/IG
     explainer = Explainer(exp_method, model, exp_param_dict)
 
+
+    """
+    NOTE:
+    inputs muss eigentlich X_test sein
+    """
     sparam_dict = load_config('experiment_config.json')['evaluators']['stability_metrics']
     sparam_dict['inputs'] = inputs
     sparam_dict['explainer'] = explainer
