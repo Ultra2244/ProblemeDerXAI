@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import pandas as pd
+from openpyxl import load_workbook
 from openxai.experiment_utils import print_summary, load_config, fill_param_dict
 from openxai.explainers.perturbation_methods import get_perturb_method
 from openxai.dataloader import ReturnLoaders, ReturnTrainTestX
@@ -9,17 +11,23 @@ from openxai import Evaluator
 from openxai.evaluator import ground_truth_metrics, prediction_metrics, stability_metrics
 
 """
----TO DO---
+TODO: Dokumentation
+    data_name: german/ ...
+    ml_model: ann/lr
+    method: lime/shap
+    metric: PGU/PGI/ ...
 
-data_name: german/ ...
-ml_model: ann/lr
-method: lime/shap
-metric: PGU/PGI/ ...
+    ... restliche Dokumentation. Welche Metriken? Kurze Erklärung?
 
-... restliche Dokumentation. Welche Metriken? Kurze Erklärung?
-
-Predictive Faithfulness Metrics
-PGI/PGU:
+    Predictive Faithfulness Metrics
+    PGI/PGU:
+TODO: Clean Code
+    Code aufräumen:
+        -Redundancies verringern
+        -Häufige literale in variablen abspeichern
+    Modeldifferenzierung(ann/lr)
+    Explainerdifferenzierung(lime/shap)
+    Datasetdifferenzierung
 """
 def testModelsData(data_name, method, model_name):
     # Get training and test loaders
@@ -94,79 +102,67 @@ def testModelsData(data_name, method, model_name):
     exp_param_dict = fill_param_dict(exp_method, exp_param_dict, X_train)  # if LIME/IG
     explainer = Explainer(exp_method, model, exp_param_dict)
 
+    # sparam_dict1 contains X_test as inputs for RIS
+    # sparam_dict2 contains inputs as inputs for RRS/ROS
+    sparam_dict1 = load_config('experiment_config.json')['evaluators']['stability_metrics']
+    sparam_dict1['explainer'] = explainer
+    sparam_dict1['feature_metadata'] = feature_metadata
+    sparam_dict1['perturb_method'] = get_perturb_method(sparam_dict1['std'], data_name)
+    del sparam_dict1['std']
 
-    """
-    NOTE:
-    inputs muss eigentlich X_test sein
-    """
-    sparam_dict = load_config('experiment_config.json')['evaluators']['stability_metrics']
-    sparam_dict['inputs'] = inputs
-    sparam_dict['explainer'] = explainer
-    sparam_dict['feature_metadata'] = feature_metadata
-    sparam_dict['perturb_method'] = get_perturb_method(sparam_dict['std'], data_name)
-    del sparam_dict['std']
+    sparam_dict2 = sparam_dict1.copy()
+    sparam_dict1['inputs'] = X_test
+    sparam_dict2['inputs'] = X_test
 
     # Print parameters
     # params_preview = [f'{k}: array of size {v.shape}' if hasattr(v, 'shape') else f'{k}: {v}' for k, v in param_dict.items()]
     # print(f'{metric.upper()} Parameters\n\n' +'\n'.join(params_preview))
 
-    # Save results from Stability Metrics into excel sheet
-    #for sm in stability_metrics:
-    """
-    TODO:
-    1. Die anderen stability metrics einführen
-    2. Code aufräumen:
-        -Redundancies verringern
-        -Häufige literale in variablen abspeichern
-    3. Modeldifferenzierung(ann/lr)
-    4. Explainerdifferenzierung(lime/shap)
-    5. Datasetdifferenzierung
-    """
-    metric = 'RIS'
-
-    # Evaluate the metric accross the test inputs/explanations
-    evaluator = Evaluator(model, metric)
-    score, mean_score = evaluator.evaluate(**sparam_dict)
-
-    # Calculate standard error
-    std_err = np.std(score) / np.sqrt(len(score))
-    
-    # Print results
-    with open("results/experiment_results.csv", "a") as f:
-        f.write(f"{data_name},{method},{metric},{mean_score:.2f},{std_err:.2f}\n")
-
-    # Save results from Ground Truth Metrics into excel sheet
-    for gtm in ground_truth_metrics:
-        metric = gtm
-
+    for metric in (stability_metrics + prediction_metrics + ground_truth_metrics):
         # Evaluate the metric accross the test inputs/explanations
+        # For RIS, we use the whole test data
+        # For RRS/ROS, we use the first 10 datapoints, "inputs"
         evaluator = Evaluator(model, metric)
-        if metric == 'PRA' or metric == 'RC':      
-            score, mean_score = evaluator.evaluate(**gparam_dict2)
+        if metric in stability_metrics:
+            if metric == 'RIS':
+                score, mean_score = evaluator.evaluate(**sparam_dict1)
+            else:
+                score, mean_score = evaluator.evaluate(**sparam_dict2)
+        elif metric in prediction_metrics:
+            score, mean_score = evaluator.evaluate(**param_dict)
         else:
-            score, mean_score = evaluator.evaluate(**gparam_dict1)
+            if metric == 'PRA' or metric == 'RC':      
+                score, mean_score = evaluator.evaluate(**gparam_dict2)
+            else:
+                score, mean_score = evaluator.evaluate(**gparam_dict1)
 
         # Calculate standard error
         std_err = np.std(score) / np.sqrt(len(score))
-        
-        # Print results
-        with open("results/experiment_results.csv", "a") as f:
-            f.write(f"{data_name},{method},{metric},{mean_score:.2f},{std_err:.2f}\n")
 
-    # Save results from Prediction Metrics into excel sheet
-    for pm in prediction_metrics:
-        metric = pm
+        writeToCsv(data_name, method, metric, mean_score, std_err)
 
-        # Evaluate the metric accross the test inputs/explanations
-        evaluator = Evaluator(model, metric)
-        score, mean_score = evaluator.evaluate(**param_dict)
-
-        # Calculate standard error
-        std_err = np.std(score) / np.sqrt(len(score))
-        
-        # Print results
-        with open("results/experiment_results.csv", "a") as f:
-            f.write(f"{data_name},{method},{metric},{mean_score:.2f},{std_err:.2f}\n")
+def writeToCsv(data_name, method, metric, mean_score, std_err):
+    data = {
+        "Dataset": [data_name],
+        "Method": [method],
+        "Metric": [metric],
+        "Mean Score": [round(mean_score, 2)],
+        "Standard Error": [round(std_err, 2)]
+    }
+    excel_file = "results/experiment_results.xlsx"
+    sheet_name = "experiment_results"
+    df = pd.DataFrame(data)
+    try:
+        # Falls die Datei schon existiert, öffne sie und füge neue Zeile hinzu
+        with pd.ExcelWriter(excel_file, mode="a", engine="openpyxl", if_sheet_exists="overlay") as writer:
+            df.to_excel(writer, sheet_name=sheet_name, startrow=writer.sheets[sheet_name].max_row, index=False, header=False)
+    except FileNotFoundError:
+        # Falls die Datei nicht existiert, erstelle eine neue Datei mit Kopfzeilen
+        with pd.ExcelWriter(excel_file, mode="w", engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
 
 if __name__ == '__main__':
-    testModelsData('adult', 'lime', 'lr')
+    for data in ["german", "adult"]:
+        for method in ["ann", "lr"]:
+            for model_name in ["lime", "shap"]:
+                testModelsData('adult', 'lime', 'lr')
